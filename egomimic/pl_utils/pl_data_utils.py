@@ -75,8 +75,6 @@ class MultiDataModuleWrapper(LightningDataModule):
         proprio: bool = False,
         embodiment_label: bool = False,
         control_mode: dict[str, str] | None = None,
-        train_viz_datasets: dict | None = None,
-        train_viz_dataloader_params: dict | None = None,
     ):
         """
         Args:

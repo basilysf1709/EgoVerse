@@ -16,7 +16,6 @@ from tabulate import tabulate
 from egomimic.eval.eval import Eval
 from egomimic.pl_utils.pl_model import ModelWrapper
 from egomimic.rldb.zarr.utils import DataSchematic, set_global_seed
-from egomimic.rldb.zarr.zarr_dataset_multi import MultiDataset
 from egomimic.utils.aws.aws_data_utils import load_env
 from egomimic.utils.dataloader_ipc import configure_dataloader_ipc
 from egomimic.utils.instantiators import instantiate_callbacks, instantiate_loggers
@@ -77,7 +76,9 @@ def _log_dataset_frame_counts(
     log.info("Dataset frame counts:\n" + table)
 
 
-def _propagate_data_schematic_to_datasets(data_schematic, datasets, bounds_slack: float = 0.0):
+def _propagate_data_schematic_to_datasets(
+    data_schematic, datasets, bounds_slack: float = 0.0
+):
     """
     Set the shared data schematic on all top-level datasets.
     """
@@ -155,7 +156,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info(f"Inferring shapes for dataset <{dataset_name}>")
         t_shape = time.perf_counter()
         data_schematic.infer_shapes_from_batch(dataset[0])
-        log.info(f"[Timing] Shape inference for {dataset_name}: {time.perf_counter() - t_shape:.2f}s")
+        log.info(
+            f"[Timing] Shape inference for {dataset_name}: {time.perf_counter() - t_shape:.2f}s"
+        )
 
         instantiate_copy = copy.deepcopy(cfg.data.train_datasets[dataset_name])
         keymap_cfg = instantiate_copy.resolver.key_map
@@ -177,7 +180,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 cfg, "norm_stats.precomputed_norm_path", default=None
             ),
         )
-        log.info(f"[Timing] Norm stats for {dataset_name}: {time.perf_counter() - t_norm:.2f}s")
+        log.info(
+            f"[Timing] Norm stats for {dataset_name}: {time.perf_counter() - t_norm:.2f}s"
+        )
         # Cache norm stats if save_cache_dir is set
         save_cache_dir = OmegaConf.select(
             cfg, "norm_stats.save_cache_dir", default=None
@@ -188,7 +193,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.reject_outliers:
         # Propagate the shared data schematic to top-level MultiDatasets for bounds checks.
         # Use datamodule.train_datasets (null entries already filtered by the wrapper).
-        bounds_slack = float(OmegaConf.select(cfg, "reject_outliers_slack", default=0.0))
+        bounds_slack = float(
+            OmegaConf.select(cfg, "reject_outliers_slack", default=0.0)
+        )
         _propagate_data_schematic_to_datasets(
             data_schematic,
             datamodule.train_datasets,
@@ -221,20 +228,33 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
 
-    if os.environ.get("MODAL_IS_REMOTE") == "1" and os.environ.get("MODAL_TIMEOUT_SECONDS"):
+    if os.environ.get("MODAL_IS_REMOTE") == "1" and os.environ.get(
+        "MODAL_TIMEOUT_SECONDS"
+    ):
         from egomimic.modal.callbacks import ModalAutoRestartCallback
+
         callbacks.append(ModalAutoRestartCallback())
         log.info("[ModalAutoRestart] Callback registered")
 
+    _train_viz_datasets = getattr(datamodule, "train_viz_datasets", {}) or {}
     if any(
         hasattr(ds, "prepare_epoch")
-        for ds in (*datamodule.train_datasets.values(), *datamodule.valid_datasets.values())
+        for ds in (
+            *datamodule.train_datasets.values(),
+            *datamodule.valid_datasets.values(),
+            *_train_viz_datasets.values(),
+        )
     ):
         from egomimic.modal.callbacks import PrefetchEpochCallback
+
         callbacks.append(
-            PrefetchEpochCallback(datamodule.train_datasets, datamodule.valid_datasets)
+            PrefetchEpochCallback(
+                datamodule.train_datasets,
+                datamodule.valid_datasets,
+                train_viz_datasets=_train_viz_datasets,
+            )
         )
-        log.info("[PrefetchEpoch] Callback registered (train + valid)")
+        log.info("[PrefetchEpoch] Callback registered (train + valid + train_viz)")
 
     # Resolve mode: support both new `mode` key and legacy `train`/`eval` booleans
     if cfg.get("mode") is not None:
@@ -320,9 +340,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 train_viz_eval.trainer = trainer
                 train_viz_eval.model = model.model
                 model.train_viz_evaluator = train_viz_eval
-                log.info(
-                    "train_viz_evaluator configured — wired to dataloader_idx=1"
-                )
+                log.info("train_viz_evaluator configured — wired to dataloader_idx=1")
         log.info("Starting training!")
         trainer.fit(
             model=model,

@@ -76,7 +76,8 @@ class ModalAutoRestartCallback(Callback):
 
         raw_args: list = json.loads(os.environ.get("MODAL_HYDRA_ARGS", "[]"))
         new_args = [
-            a for a in raw_args
+            a
+            for a in raw_args
             if not a.startswith("ckpt_path=") and not a.startswith("wandb_run_id=")
         ]
         new_args.append(f"ckpt_path={ckpt_path}")
@@ -104,7 +105,9 @@ class ModalAutoRestartCallback(Callback):
                 log.error(f"[ModalAutoRestart] Failed to spawn continuation: {exc}")
 
         trainer.should_stop = True
-        log.info("[ModalAutoRestart] Stopping current run — continuation job is running")
+        log.info(
+            "[ModalAutoRestart] Stopping current run — continuation job is running"
+        )
 
 
 class PrefetchEpochCallback(Callback):
@@ -123,16 +126,25 @@ class PrefetchEpochCallback(Callback):
     are ready — an in-lockstep sync point before any val collective fires.
     """
 
-    def __init__(self, train_datasets: dict, valid_datasets: dict | None = None) -> None:
+    def __init__(
+        self,
+        train_datasets: dict,
+        valid_datasets: dict | None = None,
+        train_viz_datasets: dict | None = None,
+    ) -> None:
         super().__init__()
         self._train_datasets = train_datasets
         self._valid_datasets = valid_datasets or {}
+        self._train_viz_datasets = train_viz_datasets or {}
 
     def _prepare(self, datasets: dict, epoch: int, split: str) -> None:
         for name, ds in datasets.items():
             if hasattr(ds, "prepare_epoch"):
                 log.info(
-                    "PrefetchEpochCallback: prepare_epoch(%d) for %s/%s", epoch, split, name
+                    "PrefetchEpochCallback: prepare_epoch(%d) for %s/%s",
+                    epoch,
+                    split,
+                    name,
                 )
                 ds.prepare_epoch(epoch)
 
@@ -143,3 +155,7 @@ class PrefetchEpochCallback(Callback):
         # All ranks call this before the val loop → identical valid index_map +
         # a synchronized barrier point, preventing the DDP collective desync.
         self._prepare(self._valid_datasets, trainer.current_epoch, "valid")
+        # train_viz is the second val pass (dataloader_idx=1); stage it too, else
+        # its PrefetchedMapDataset index_map never builds and __getitem__ falls
+        # back to the single-episode probe path.
+        self._prepare(self._train_viz_datasets, trainer.current_epoch, "train_viz")
