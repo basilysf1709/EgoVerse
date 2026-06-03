@@ -1047,8 +1047,16 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
         if torch.utils.data.get_worker_info() is not None:
             self._maybe_reload_worker_epoch()
 
-        if self._index_map is None:
-            # Pre-prepare_epoch path: shape + norm-stats inference via probe.
+        if not self._index_map:
+            # Two cases land here, both safe to serve from the probe:
+            #   * Pre-prepare_epoch (index_map is None): shape + norm-stats
+            #     inference before the first window is built.
+            #   * A worker whose rebuild transiently produced an empty window
+            #     because its episodes were not materialized yet (valid-mode
+            #     synchronous extraction racing the rebuild). The worker retries
+            #     the rebuild on the next __getitem__ and switches to the real
+            #     index_map once zarr.json appears.
+            # Either way, return a probe sample rather than divide by zero below.
             if self._probe_zarr_path is None:
                 self._probe_zarr_path = self._extract_probe()
             if not hasattr(self, "_probe_ds"):
@@ -1261,13 +1269,19 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
             with open(Path(ep_path) / "zarr.json") as f:
                 n = int(json.load(f)["attributes"]["total_frames"])
         except (OSError, KeyError, ValueError, TypeError) as e:
+            # Do NOT cache the fallback. A missing/partial zarr.json almost always
+            # means the episode is mid-extraction (valid-mode synchronous staging
+            # races a worker index_map rebuild). Caching 0 here would poison the
+            # count permanently — the episode would contribute 0 frames forever,
+            # even after its zarr.json materializes. Returning uncached lets a
+            # later rebuild read the real total_frames once the file lands.
             logger.warning(
-                "Could not read total_frames from %s/zarr.json (%s); using %d",
+                "Could not read total_frames from %s/zarr.json (%s); using %d (uncached)",
                 ep_path,
                 e,
                 fallback,
             )
-            n = fallback
+            return fallback
         self._frame_count_cache[ep_path] = n
         return n
 
@@ -1537,6 +1551,24 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
         if published_epoch == self._worker_epoch_loaded:
             return
 
+        # Fast path for persistent_workers=False (the default/required mode): a
+        # freshly-forked worker inherits, via fork, the index_map the MAIN
+        # process built in prepare_epoch *after* every episode was materialized.
+        # That map is already correct and deterministic — identical to what a
+        # rebuild would reproduce (same seed + shuffle) — so adopt it instead of
+        # re-reading each episode's zarr.json. The re-read is exactly what races
+        # valid-mode synchronous extraction: the epoch file is published before
+        # extraction finishes (so worker rebuilds can run before eviction), and a
+        # rebuild in that window sees not-yet-written zarr.json, counts 0 frames
+        # for every episode, and yields an empty index_map → divide-by-zero.
+        if (
+            self._worker_epoch_loaded == -1
+            and self._current_epoch == published_epoch
+            and self._index_map
+        ):
+            self._worker_epoch_loaded = published_epoch
+            return
+
         # Build the same window the main process built. The plan is
         # deterministic (same seed across all processes), so the resulting
         # (ep_path, frame_idx) tuples match main's index_map exactly.
@@ -1549,6 +1581,22 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
             ep_path = str(self._pool.episode_path(ep.episode_hash))
             for fi in self._episode_frame_indices(ep_path):
                 index_map.append((ep_path, fi))
+
+        # A non-racing rebuild is always non-empty (EpisodePlan rejects an empty
+        # split and episodes_per_epoch>0). An empty result means this window's
+        # episodes are still mid-extraction and their zarr.json don't exist yet.
+        # Do NOT install an empty map (it would divide-by-zero in __getitem__)
+        # and do NOT advance _worker_epoch_loaded — leave the prior map (or None
+        # → probe path) in place and retry on the next __getitem__, by which
+        # point synchronous extraction has typically finished.
+        if not index_map:
+            logger.warning(
+                "worker rebuild for epoch %d produced an empty index_map "
+                "(episodes not materialized yet); keeping prior map, will retry",
+                published_epoch,
+            )
+            return
+
         if self.mode == "train":
             rng = random.Random(self.seed + published_epoch + 99999)
             rng.shuffle(index_map)
