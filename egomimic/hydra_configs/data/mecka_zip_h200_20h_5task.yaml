@@ -21,12 +21,12 @@
 #     evaluator@train_viz_evaluator=train_viz_pi \
 #     trainer.check_val_every_n_epoch=5 trainer.limit_val_batches=10 \
 #     +modal_gpu=H200:2 +modal_cpu=48 +modal_memory_gb=200 \
-#     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=400 \
+#     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=512 \
 #     norm_stats.precomputed_norm_path=precomputed_norm_stats/mecka_all_zarr \
 #     init_submodules=false
 #
 # Storage (~745 × ~150 MB ≈ 112 GB): pools train 150 + valid 40 + viz 10 ≈
-# 200 GB, well under the 400 GB ephemeral request. Stage-all sizing: the train
+# 200 GB, under Modal's 512 GiB ephemeral floor. Stage-all sizing: the train
 # split (~671 eps × 150 MB ≈ 101 GB) must fit under 0.92×pool_size_gb=138 GB —
 # 150 GB pool leaves ~37 GB margin so the PoolFillerThread never deadlocks.
 
