@@ -26,8 +26,8 @@
 #
 # Storage (~747 × ~150 MB ≈ 112 GB): pools train 150 + valid 40 + viz 10 ≈
 # 200 GB, under Modal's 512 GiB ephemeral floor. Stage-all sizing: the train
-# split (~673 eps × 150 MB ≈ 101 GB) must fit under 0.92×pool_size_gb=138 GB —
-# 150 GB pool leaves ~37 GB margin so the PoolFillerThread never deadlocks.
+# split (~673 eps × 150 MB ≈ 133 GB measured) must fit under 0.92×pool_size_gb=184 GB —
+# 200 GB pool clears it with ~50 GB margin so the PoolFillerThread never deadlocks.
 
 _target_: egomimic.pl_utils.pl_data_utils.MultiDataModuleWrapper
 
@@ -57,7 +57,7 @@ train_datasets:
     episodes_per_epoch: 747     # == full subset → stage-all before training
     epoch_frames: ${multiply:${trainer.limit_train_batches},${data.train_dataloader_params.mecka_bimanual.batch_size}}
     cache_dir: /cache/zarr_cache
-    pool_size_gb: 150           # holds all ~673 train eps (~101 GB) under 0.92 gate; no eviction
+    pool_size_gb: 200           # holds all ~673 train eps (~133 GB measured) under 0.92 gate (184 GB); no eviction
     lookahead_epochs: 2.0
     n_copy_threads: 48
     prepare_timeout_s: 3600     # 1h is ample for ~750 eps off the ~150 MB/s volume
