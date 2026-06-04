@@ -1292,6 +1292,28 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
                 fallback,
             )
             return fallback
+
+        # Pause filtering: when active with a precomputed cache, the index_map
+        # must enumerate only the KEPT frames so the per-episode logical length
+        # matches ZarrDataset.__len__ (== len(keep_indices)); otherwise the
+        # index_map would span the raw range and ZarrDataset's logical→raw
+        # remap would go out of bounds. A cache miss falls back to the raw
+        # count — which precompute_pause_filter mirrors by keeping all frames
+        # for the same episode, so the two stay consistent.
+        eps = getattr(self.resolver, "pause_removal_epsilon", None)
+        cache_path = getattr(self.resolver, "pause_precompute_cache", None)
+        if eps is not None and cache_path:
+            from egomimic.rldb.zarr.zarr_dataset_multi import (
+                _load_pause_precompute_cache,
+            )
+
+            try:
+                entry = _load_pause_precompute_cache(cache_path).get(Path(ep_path).name)
+            except (OSError, ValueError):
+                entry = None
+            if entry and int(entry.get("raw_total", 0)) > 0:
+                n = len(entry["keep_indices"])
+
         self._frame_count_cache[ep_path] = n
         return n
 

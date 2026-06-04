@@ -2174,6 +2174,18 @@ class ZarrDataset(torch.utils.data.Dataset):
                 self._raw_total_frames = int(entry["raw_total"])
                 self.keep_indices = np.asarray(entry["keep_indices"], dtype=np.int64)
                 return (self._raw_total_frames, int(len(self.keep_indices)))
+            # Cache configured but this episode is absent (or sentinel). Keep
+            # ALL frames rather than recomputing in-process: the prefetch
+            # index_map falls back to the raw frame count on a cache miss
+            # (_episode_n_frames), so an in-process recompute (kept < raw)
+            # would desync the two and overrun the logical→raw remap.
+            logger.warning(
+                "pause cache miss for %s; keeping all frames (unfiltered)",
+                Path(self.episode_path).name,
+            )
+            self._raw_total_frames = int(self.total_frames)
+            self.keep_indices = None
+            return (self.total_frames, self.total_frames)
 
         self._ensure_episode_reader()
         store = self.episode_reader._store
