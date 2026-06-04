@@ -27,8 +27,19 @@
 #     norm_stats.precomputed_norm_path=precomputed_norm_stats/mecka_all_zarr \
 #     init_submodules=false
 #
-# Storage (~19736 × ~131 MB ≈ 2.58 TB; 3 TiB ephemeral cap):
-#   train pool 2900 GB, valid pool 400 GB, /cache ~30 GB.
+# Storage (measured ~150 MB/ep → ~2.66 TB train, ~0.30 TB valid; 3 TiB cap):
+#   train pool 3000 GB, valid pool 400 GB, /cache ~50 GB. Launch with
+#   +modal_ephemeral_disk_gb=3000 (=3221 GB physical) → ~214 GB headroom.
+#
+# CRITICAL — stage-all-first sizing: episodes_per_epoch == the FULL split, so
+# the filler must hold EVERY unique episode resident at once (train_cursor stays
+# 0 → eviction never runs). The PoolFillerThread stops at capacity_target_ratio
+# (0.92) of pool_size_gb, so the WHOLE split must fit under 0.92×pool_size_gb or
+# the filler deadlocks mid-stage and prepare_epoch times out. Required minimums:
+#   train: 17763 eps × 150 MB / 0.92 ≈ 2893 GB  → pool_size_gb=3000 (98 GB margin)
+#   valid:  1973 eps × 150 MB / 0.92 ≈  321 GB  → pool_size_gb=400  (72 GB margin)
+# Do NOT shrink pool_size_gb below these at launch — a 2550 override (315 GB
+# short) deadlocked the 2026-06-04 500h runs at 15656/17763 eps.
 
 _target_: egomimic.pl_utils.pl_data_utils.MultiDataModuleWrapper
 
@@ -58,10 +69,10 @@ train_datasets:
     episodes_per_epoch: 19736   # == full subset → stage-all before training
     epoch_frames: ${multiply:${trainer.limit_train_batches},${data.train_dataloader_params.mecka_bimanual.batch_size}}
     cache_dir: /cache/zarr_cache
-    pool_size_gb: 2900          # holds all ~17.8k train eps (no eviction)
+    pool_size_gb: 3000          # holds all ~17.8k train eps (2661 GB) under 0.92 gate; no eviction
     lookahead_epochs: 1.0
     n_copy_threads: 48
-    prepare_timeout_s: 21600    # 6h — stage-all of ~20k eps off the ~150 MB/s volume
+    prepare_timeout_s: 28800    # 8h — stage-all of ~17.8k eps off the ~150 MB/s volume (reached 88% in 6h before)
 
 valid_datasets:
   mecka_bimanual:
@@ -82,10 +93,10 @@ valid_datasets:
     mode: valid
     episodes_per_epoch: 2000    # full valid split (~10% of 19736)
     cache_dir: /cache/zarr_cache_valid
-    pool_size_gb: 400
+    pool_size_gb: 400          # holds all ~1973 valid eps (296 GB) under 0.92 gate
     lookahead_epochs: 1.0
     n_copy_threads: 16
-    prepare_timeout_s: 21600
+    prepare_timeout_s: 28800
 
 train_viz_datasets:
   mecka_bimanual:
