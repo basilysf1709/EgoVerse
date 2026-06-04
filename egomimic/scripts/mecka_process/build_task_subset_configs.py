@@ -6,6 +6,16 @@ Produces the ``eps_to_use`` hash lists consumed by:
   - data/mecka_zip_h200_5h_1task.yaml    (1 task,  ~5h,  random sample)
   - data/mecka_zip_h200_50h_5task.yaml   (5 tasks, ~50h, balanced 10h/task)
   - data/mecka_zip_h200_500h_25task.yaml (25 tasks, all episodes ~528h)
+  - data/mecka_zip_h200_20h_1task.yaml   (1 task,  ~20h, random sample)
+  - data/mecka_zip_h200_20h_5task.yaml   (5 tasks, ~20h, balanced 4h/task)
+  - data/mecka_zip_h200_20h_10task.yaml  (10 tasks,~20h, balanced 2h/task)
+
+The three ``20h`` configs are a TASK-SCALING sweep: total data is held fixed at
+~20h while task diversity grows (1 → 5 → 10). Task sets are nested top-N by
+episode count (the 1-task set ⊂ the 5-task set ⊂ the 10-task set), so the only
+varied factor is how many tasks the 20h is spread across. All 10 tasks have far
+more than 2h available (the top-25 range from ~49h down to ~9.6h), so unlike
+the 500h case every 20h split is exactly balanceable.
 
 Task -> episode mapping comes from a DemInf curation ``scores_by_task.json``
 (task_name -> {episode_hash: score}); we keep only hashes that exist in the
@@ -117,14 +127,48 @@ def main() -> None:
     # --- 25 tasks / all episodes (~528h, imbalanced) ---------------------
     cfg_25 = {task: sorted(hashes) for task, hashes in rows[:25]}
 
+    # --- task-scaling sweep: ~20h total, vary task count -----------------
+    # Nested top-N task sets; ~20h held fixed by shrinking the per-task budget
+    # as the task count grows: 1×20h, 5×4h, 10×2h. (Defined AFTER cfg_1/cfg_5
+    # so the shared rng state — and therefore the existing 5h/50h JSONs — are
+    # byte-for-byte unchanged when this script is re-run.)
+    n_20h, n_4h, n_2h = (
+        hours_to_episodes(20),
+        hours_to_episodes(4),
+        hours_to_episodes(2),
+    )
+    cfg_20h_1 = {rows[0][0]: sample(rows[0][1], n_20h)}
+    cfg_20h_5 = {task: sample(hashes, n_4h) for task, hashes in rows[:5]}
+    cfg_20h_10 = {task: sample(hashes, n_2h) for task, hashes in rows[:10]}
+
+    # Warn (don't silently truncate) if any task can't cover its budget.
+    for label, cfg, want in (
+        ("20h/1task", cfg_20h_1, n_20h),
+        ("20h/5task", cfg_20h_5, n_4h),
+        ("20h/10task", cfg_20h_10, n_2h),
+    ):
+        short = {t: len(h) for t, h in cfg.items() if len(h) < want}
+        if short:
+            print(f"WARNING {label}: tasks under {want} eps target: {short}")
+
     def flatten(by_task: dict) -> list[str]:
         return sorted({h for hs in by_task.values() for h in hs})
 
     train_1, train_5, train_25 = flatten(cfg_1), flatten(cfg_5), flatten(cfg_25)
+    train_20h_1, train_20h_5, train_20h_10 = (
+        flatten(cfg_20h_1),
+        flatten(cfg_20h_5),
+        flatten(cfg_20h_10),
+    )
     viz_1, viz_5, viz_25 = (
         per_task_select(cfg_1),
         per_task_select(cfg_5),
         per_task_select(cfg_25),
+    )
+    viz_20h_1, viz_20h_5, viz_20h_10 = (
+        per_task_select(cfg_20h_1),
+        per_task_select(cfg_20h_5),
+        per_task_select(cfg_20h_10),
     )
 
     EXTRA_DIR.mkdir(parents=True, exist_ok=True)
@@ -135,6 +179,12 @@ def main() -> None:
         "mecka_5h_1task_viz.json": viz_1,
         "mecka_50h_5task_viz.json": viz_5,
         "mecka_500h_25task_viz.json": viz_25,
+        "mecka_20h_1task.json": train_20h_1,
+        "mecka_20h_5task.json": train_20h_5,
+        "mecka_20h_10task.json": train_20h_10,
+        "mecka_20h_1task_viz.json": viz_20h_1,
+        "mecka_20h_5task_viz.json": viz_20h_5,
+        "mecka_20h_10task_viz.json": viz_20h_10,
     }
     for name, payload in outputs.items():
         (EXTRA_DIR / name).write_text(json.dumps(payload, indent=0))
@@ -155,6 +205,19 @@ def main() -> None:
     print(f"  tasks: {list(cfg_25)}")
     print(
         f"  train={len(train_25)} eps (~{hrs(len(train_25)):.1f}h)  viz={len(viz_25)}"
+    )
+    print("=== task-scaling sweep (~20h held fixed) ===")
+    print(
+        f"  20h/1task : {list(cfg_20h_1)}\n"
+        f"    train={len(train_20h_1)} eps (~{hrs(len(train_20h_1)):.1f}h, ~{hrs(n_20h):.1f}h/task)  viz={len(viz_20h_1)}"
+    )
+    print(
+        f"  20h/5task : {list(cfg_20h_5)}\n"
+        f"    train={len(train_20h_5)} eps (~{hrs(len(train_20h_5)):.1f}h, ~{hrs(n_4h):.1f}h/task)  viz={len(viz_20h_5)}"
+    )
+    print(
+        f"  20h/10task: {list(cfg_20h_10)}\n"
+        f"    train={len(train_20h_10)} eps (~{hrs(len(train_20h_10)):.1f}h, ~{hrs(n_2h):.1f}h/task)  viz={len(viz_20h_10)}"
     )
     print(f"written to {EXTRA_DIR}")
 
