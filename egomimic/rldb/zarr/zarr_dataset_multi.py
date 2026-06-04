@@ -20,6 +20,7 @@ Each episode is self-contained with its own metadata, enabling:
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -130,6 +131,18 @@ def _build_pause_keep_mask(
 
 
 PAUSE_PRECOMPUTE_CACHE_ENV = "EGOMIMIC_PAUSE_PRECOMPUTE_CACHE"
+
+
+@functools.lru_cache(maxsize=8)
+def _load_pause_precompute_cache(cache_path: str) -> dict:
+    """Load + memoize a pause-filter cache JSON.
+
+    Shape: ``{episode_hash: {"raw_total": int, "keep_indices": [int, ...]}}``.
+    Memoized per process so the (potentially large) JSON is read once even
+    though every forked DataLoader worker opens episodes independently.
+    """
+    with open(cache_path) as f:
+        return json.load(f)
 
 
 def split_dataset_names(dataset_names, valid_ratio=0.2, seed=SEED):
@@ -1570,6 +1583,7 @@ class ZarrDataset(torch.utils.data.Dataset):
         transform_list: list | None = None,
         norm_stats: dict | None = None,
         pause_removal_epsilon: float | None = None,
+        pause_precompute_cache: str | None = None,
         _total_frames: int | None = None,
         _embodiment: str | None = None,
         precomputed_metadata: dict | None = None,
@@ -1623,6 +1637,7 @@ class ZarrDataset(torch.utils.data.Dataset):
         self.transform = transform_list
         self.norm_stats = norm_stats or {}
         self.pause_removal_epsilon = pause_removal_epsilon
+        self.pause_precompute_cache = pause_precompute_cache
         self.keep_indices: np.ndarray | None = None
         self._raw_total_frames: int | None = None
         self._zarr_bulk_cache: dict[str, np.ndarray] | None = None
@@ -2139,6 +2154,27 @@ class ZarrDataset(torch.utils.data.Dataset):
         if self.keep_indices is not None:
             return (self._raw_total_frames or self.total_frames, len(self.keep_indices))
 
+        # Prefer a precomputed cache entry for this episode (keyed by hash =
+        # the pool/zip dir name) over recomputing the mask in-process. The
+        # cache is produced offline by the Modal pause-precompute fan-out. A
+        # miss or the raw_total==0 sentinel falls through to the in-process
+        # compute below, so a partial cache is safe.
+        if self.pause_precompute_cache:
+            try:
+                cache = _load_pause_precompute_cache(self.pause_precompute_cache)
+            except (OSError, ValueError) as e:
+                logger.warning(
+                    "pause cache %s unreadable (%s); recomputing in-process",
+                    self.pause_precompute_cache,
+                    e,
+                )
+                cache = {}
+            entry = cache.get(Path(self.episode_path).name)
+            if entry and int(entry.get("raw_total", 0)) > 0:
+                self._raw_total_frames = int(entry["raw_total"])
+                self.keep_indices = np.asarray(entry["keep_indices"], dtype=np.int64)
+                return (self._raw_total_frames, int(len(self.keep_indices)))
+
         self._ensure_episode_reader()
         store = self.episode_reader._store
         left_key, right_key = PAUSE_DETECT_KEYS
@@ -2299,7 +2335,7 @@ class ZarrDataset(torch.utils.data.Dataset):
             for transform in self.transform:
                 try:
                     data = transform.transform(data)
-                except Exception as e:
+                except Exception:
                     origin = _fallback_origin if _fallback_origin is not None else idx
                     next_idx, attempts = get_fallback_idx(
                         idx=idx,

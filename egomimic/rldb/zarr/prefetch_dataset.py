@@ -201,6 +201,7 @@ class ZipEpisodeResolver(EpisodeResolver):
         min_frames: int | None = None,
         seed: int = 42,
         eps_to_use: str | None = None,
+        pause_precompute_cache: str | None = None,
     ):
         super().__init__(
             Path(zip_dir),
@@ -209,6 +210,12 @@ class ZipEpisodeResolver(EpisodeResolver):
             norm_stats=norm_stats,
             pause_removal_epsilon=pause_removal_epsilon,
         )
+        # Path to a precomputed pause-filter cache JSON
+        # ({episode_hash: {raw_total, keep_indices}}). When set, each ZarrDataset
+        # loads its episode's keep_indices from the cache instead of recomputing
+        # the pause mask in-process. trainHydra injects data.pause_precompute_cache
+        # here for every resolver. None → in-process precompute (the prior behavior).
+        self.pause_precompute_cache = pause_precompute_cache
         self.zip_dir = Path(zip_dir)
         self.valid_ratio = valid_ratio
         self.debug = debug
@@ -1066,6 +1073,7 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
                     transform_list=self.resolver.transform_list,
                     norm_stats=self.resolver.norm_stats,
                     pause_removal_epsilon=self.resolver.pause_removal_epsilon,
+                    pause_precompute_cache=self.resolver.pause_precompute_cache,
                 )
             return self._probe_ds[idx % len(self._probe_ds)]
 
@@ -1085,6 +1093,7 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
                             transform_list=self.resolver.transform_list,
                             norm_stats=self.resolver.norm_stats,
                             pause_removal_epsilon=self.resolver.pause_removal_epsilon,
+                            pause_precompute_cache=self.resolver.pause_precompute_cache,
                         )
                     except Exception as e:
                         logger.warning(
@@ -1133,6 +1142,7 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
                     transform_list=self.resolver.transform_list,
                     norm_stats=self.resolver.norm_stats,
                     pause_removal_epsilon=self.resolver.pause_removal_epsilon,
+                    pause_precompute_cache=self.resolver.pause_precompute_cache,
                 )
             return self._zarr_cache[ep_path][frame_idx]
         except Exception as e:
@@ -1487,6 +1497,7 @@ class PrefetchedMapDataset(_BoundsCheckMixin, torch.utils.data.Dataset):
                     transform_list=self.resolver.transform_list,
                     norm_stats=self.resolver.norm_stats,
                     pause_removal_epsilon=self.resolver.pause_removal_epsilon,
+                    pause_precompute_cache=self.resolver.pause_precompute_cache,
                 )
             except Exception as e:
                 logger.warning(
