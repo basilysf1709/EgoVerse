@@ -75,6 +75,10 @@ class MultiDataModuleWrapper(LightningDataModule):
         proprio: bool = False,
         embodiment_label: bool = False,
         control_mode: dict[str, str] | None = None,
+        # Injected into every resolver by trainHydra; accepted here only so
+        # Hydra's `instantiate(cfg.data, ...)` doesn't choke on the top-level
+        # data.pause_precompute_cache key. Not used directly by the datamodule.
+        pause_precompute_cache: str | None = None,
     ):
         """
         Args:
