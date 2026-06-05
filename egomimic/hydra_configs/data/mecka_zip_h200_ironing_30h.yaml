@@ -1,15 +1,15 @@
-# 2×H200 — IRONING_CLOTHES, ~30h. LR-SWEEP DATA BASE (batch_size 64).
+# 4×H200 — IRONING_CLOTHES, ~30h. LR-SWEEP DATA BASE (64/GPU → 256 global batch).
 #
 # Single fixed task (ironing_clothes, ~33.5h available) held at ~30h of data,
 # used as the shared dataset for a learning-rate sweep over three model configs:
 #   pi0.5_ironing30h_lr1e5 / _lr3e5 / _lr5e5
 # Each model config sets its LR (1e-5 / 3e-5 / 5e-5) and a cosine-schedule
 # T_max derived from ONE pass over this 30h dataset:
-#   30h × 3600 s/h × 30 fps = 3,240,000 samples (frames) ÷ batch_size 64
-#   = 50,625 steps (= scheduler.num_training_steps).
+#   30h × 3600 s/h × 30 fps = 3,240,000 samples (frames) ÷ global batch 256
+#   = 12,656 steps (= scheduler.num_training_steps).
 # (30 fps is the recording rate — catalog mean ≈ 2890 frames / ~96.35 s ep.)
-# NOTE: on 2-GPU DDP the GLOBAL batch is 64×2=128, so a true one-epoch step
-# count is ~25,313; T_max=50,625 follows the literal "samples ÷ 64" spec.
+# Global batch 256 = 4×H200 DDP × batch_size 64 per device; the scheduler steps
+# once per global batch, so the divisor is 256, not the per-device 64.
 #
 #   task: ironing_clothes   subset≈1121 eps (~30h @ ~96 s/ep)
 #   split: ~1009 train / ~112 valid (resolver valid_ratio=0.1)
@@ -23,9 +23,9 @@
 # follow the sibling scaling configs (mecka_zip_h200_1task_*h); the only change
 # is train batch_size 32 -> 64 per the sweep spec.
 #
-# Launch (2×H200, PI/PaliGemma scratch + pretrained backbone, batch 64, workers 16,
-# val every 50 epochs, 2 lookahead epochs, 48/16 copy threads). Swap the model=
-# line for each LR point:
+# Launch (4×H200, PI/PaliGemma scratch + pretrained backbone, 64/GPU = 256 global
+# batch, workers 16, val every 50 epochs, 2 lookahead epochs, 48/16 copy threads).
+# Swap the model= line for each LR point:
 #   python egomimic/modal/trainModal.py --config-name=train_zarr_cartesian_pi \
 #     data=mecka_zip_h200_ironing_30h logger=wandb \
 #     model=pi0.5_ironing30h_lr3e5 \
@@ -33,14 +33,14 @@
 #     name=<run> description=<desc> \
 #     evaluator@train_viz_evaluator=train_viz_pi \
 #     trainer.check_val_every_n_epoch=50 trainer.limit_val_batches=10 \
-#     +modal_gpu=H200:2 +modal_cpu=48 +modal_memory_gb=200 \
+#     +modal_gpu=H200:4 +modal_cpu=96 +modal_memory_gb=400 \
 #     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=1024 \
 #     norm_stats.precomputed_norm_path=precomputed_norm_stats/mecka_all_zarr
 #   (--config-name=train_zarr_cartesian_pi sets data_schematic=pi, evaluator=eval_pi,
 #    trainer=ddp_pi, visualization=pi_cartesian_lang; init_submodules defaults true →
 #    openpi submodule + transformers 4.53.2 swap required by pi0.5.)
-#   NOTE: batch_size 64 on PaliGemma-3B may need watching for GPU OOM — the
-#   sibling sweeps run batch 32; drop back to 32 (and halve T_max) if it OOMs.
+#   NOTE: 64/GPU on PaliGemma-3B may need GPU-OOM watching (sibling sweeps run
+#   32/GPU). If it OOMs, drop to 32/GPU (global batch 128) and set T_max=25,313.
 #
 # Storage (~1121 × ~198 MB ≈ 222 GB): pools train 300 + valid 40 + viz 10 ≈
 # 350 GB caps, well within the 1 TB (1024 GiB) ephemeral disk. Stage-all sizing:
@@ -133,7 +133,7 @@ train_viz_datasets:
 
 train_dataloader_params:
   mecka_bimanual:
-    batch_size: 64            # sweep spec (siblings use 32); T_max = 3.24M samples / 64
+    batch_size: 64            # per-device; 4×H200 → 256 global batch. T_max = 3.24M / 256
     num_workers: 16
     persistent_workers: false
     prefetch_factor: 6
