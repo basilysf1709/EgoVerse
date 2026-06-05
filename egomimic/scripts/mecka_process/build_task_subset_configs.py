@@ -14,6 +14,7 @@ Produces the ``eps_to_use`` hash lists consumed by:
   - data/mecka_zip_h200_1task_10h.yaml   (1 task,  ~10h)
   - data/mecka_zip_h200_1task_20h.yaml   (1 task,  ~20h)
   - data/mecka_zip_h200_1task_50h.yaml   (1 task,  ~50h = all available)
+  - data/mecka_zip_h200_ironing_30h.yaml (ironing_clothes, ~30h, LR-sweep base)
 
 The three ``20h`` configs are a TASK-SCALING sweep: total data is held fixed at
 ~20h while task diversity grows (1 → 5 → 10). Task sets are nested top-N by
@@ -184,6 +185,18 @@ def main() -> None:
     # every nested superset — each hours config shows the SAME single sample.
     hsweep_viz = [min(hsweep_nested[HOURS_SWEEP[0]])]
 
+    # --- ironing_clothes 30h LR-sweep dataset ----------------------------
+    # A single ~30h subset of ironing_clothes, the data base for an LR sweep
+    # (see the pi0.5_ironing30h_lr{1,3,5}e5 model configs). Independent rng_ic
+    # leaves every JSON above byte-for-byte unchanged on re-run.
+    rng_ic = random.Random(args.seed)
+    ironing_hashes = dict(rows)["ironing_clothes"]
+    ironing_base = sorted(ironing_hashes)  # deterministic order before shuffle
+    rng_ic.shuffle(ironing_base)
+    n_ironing_30h = min(hours_to_episodes(30), len(ironing_base))
+    ironing_30h = sorted(ironing_base[:n_ironing_30h])
+    ironing_30h_viz = [min(ironing_30h)]
+
     def flatten(by_task: dict) -> list[str]:
         return sorted({h for hs in by_task.values() for h in hs})
 
@@ -222,6 +235,8 @@ def main() -> None:
     for h in HOURS_SWEEP:
         outputs[f"mecka_1task_{h}h.json"] = hsweep_nested[h]
         outputs[f"mecka_1task_{h}h_viz.json"] = hsweep_viz
+    outputs["mecka_ironing_30h.json"] = ironing_30h
+    outputs["mecka_ironing_30h_viz.json"] = ironing_30h_viz
     for name, payload in outputs.items():
         (EXTRA_DIR / name).write_text(json.dumps(payload, indent=0))
 
@@ -259,6 +274,10 @@ def main() -> None:
     for h in HOURS_SWEEP:
         n = len(hsweep_nested[h])
         print(f"  {h:>2}h: {n} eps (~{hrs(n):.1f}h)  viz={len(hsweep_viz)}")
+    print("=== ironing_clothes 30h LR-sweep dataset ===")
+    print(
+        f"  {len(ironing_30h)} eps (~{hrs(len(ironing_30h)):.1f}h)  viz={len(ironing_30h_viz)}"
+    )
     print(f"written to {EXTRA_DIR}")
 
 
