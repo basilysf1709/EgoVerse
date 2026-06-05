@@ -30,14 +30,14 @@
 #     evaluator@train_viz_evaluator=train_viz_pi \
 #     trainer.check_val_every_n_epoch=50 trainer.limit_val_batches=10 \
 #     +modal_gpu=H200:2 +modal_cpu=48 +modal_memory_gb=200 \
-#     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=512 \
+#     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=1024 \
 #     norm_stats.precomputed_norm_path=precomputed_norm_stats/mecka_all_zarr
 #   (--config-name=train_zarr_cartesian_pi sets data_schematic=pi, evaluator=eval_pi,
 #    trainer=ddp_pi, visualization=pi_cartesian_lang; init_submodules defaults true →
 #    openpi submodule + transformers 4.53.2 swap required by pi0.5.)
 #
 # Storage (~747 × ~198 MB ≈ 148 GB): pools train 200 + valid 40 + viz 10 ≈
-# 250 GB, under Modal's 512 GiB ephemeral floor. Stage-all sizing: the train
+# 250 GB, well within the 1 TB (1024 GiB) ephemeral disk. Stage-all sizing: the train
 # split (~673 eps × 198 MB ≈ 133 GB measured) must fit under 0.92×pool_size_gb=184 GB —
 # 200 GB pool clears it with ~50 GB margin so the PoolFillerThread never deadlocks.
 

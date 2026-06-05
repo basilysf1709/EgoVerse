@@ -29,17 +29,15 @@
 #     evaluator@train_viz_evaluator=train_viz_pi \
 #     trainer.check_val_every_n_epoch=50 trainer.limit_val_batches=10 \
 #     +modal_gpu=H200:2 +modal_cpu=48 +modal_memory_gb=200 \
-#     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=600 \
+#     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=1024 \
 #     norm_stats.precomputed_norm_path=precomputed_norm_stats/mecka_all_zarr
 #   (--config-name=train_zarr_cartesian_pi sets data_schematic=pi, evaluator=eval_pi,
 #    trainer=ddp_pi, visualization=pi_cartesian_lang; init_submodules defaults true →
 #    openpi submodule + transformers 4.53.2 swap required by pi0.5.)
-#   NOTE: ephemeral disk is bumped 512 -> 600 GiB here — this is the only sweep
-#   point whose staged data (~363 GB) needs more than the 512 GiB floor's margin.
 #
 # Storage (~1832 × ~198 MB ≈ 363 GB): pools train 500 + valid 60 + viz 10 ≈
-# 570 GB caps (actual staged ≈ 363 GB). Request 600 GiB ephemeral disk (above the
-# 512 floor). Stage-all sizing: the train split (~1649 eps × 198 MB ≈ 326 GB)
+# 570 GB caps (actual staged ≈ 363 GB), comfortably within the 1 TB (1024 GiB)
+# ephemeral disk. Stage-all sizing: the train split (~1649 eps × 198 MB ≈ 326 GB)
 # must fit under 0.92×pool_size_gb=460 GB — the 500 GB pool clears it with
 # ~134 GB margin so the PoolFillerThread never deadlocks.
 
