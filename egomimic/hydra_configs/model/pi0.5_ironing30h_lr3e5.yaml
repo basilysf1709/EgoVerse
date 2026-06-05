@@ -10,9 +10,10 @@ defaults:
 #   30h × 3600 s/h × 30 fps = 3,240,000 samples ÷ global batch 256 = 12,656 steps.
 #   (global batch 256 = 4×H200 DDP × 64 per-device; the scheduler steps once per
 #    global batch, so the divisor is 256, not the per-device 64.)
-# Warmup kept at the pi0.5_base default (2000). num_cycles 0.5 → decay to 0 at T_max.
+# Warmup set to 1000 steps (~8% of T_max). num_cycles 0.5 → decay to 0 at T_max.
 optimizer:
   lr: 3e-5
 
 scheduler:
+  num_warmup_steps: 1000
   num_training_steps: 12656
