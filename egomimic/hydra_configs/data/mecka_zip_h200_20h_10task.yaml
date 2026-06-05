@@ -15,16 +15,21 @@
 # counts are read from each staged zarr's metadata at index_map build time.
 # train_viz: one mid-trajectory sample per task (10 samples).
 #
-# Launch (2×H200, batch 64, 2 lookahead epochs, 48/16 copy threads):
-#   python egomimic/modal/trainModal.py \
-#     data=mecka_zip_h200_20h_10task trainer=ddp_modal logger=wandb \
-#     model=hpt_bc_flow_mecka_300m name=<run> description=<desc> \
+# Launch (2×H200, PI/PaliGemma scratch + pretrained backbone, batch 32, workers 16,
+# val every 50 epochs, 2 lookahead epochs, 48/16 copy threads):
+#   python egomimic/modal/trainModal.py --config-name=train_zarr_cartesian_pi \
+#     data=mecka_zip_h200_20h_10task logger=wandb \
+#     model=pi0.5_bc_mecka_scratch \
+#     model.robomimic_model.config.paligemma_weight_path=paligemma_weights/paligemma-3b-pt-224 \
+#     name=<run> description=<desc> \
 #     evaluator@train_viz_evaluator=train_viz_pi \
-#     trainer.check_val_every_n_epoch=5 trainer.limit_val_batches=10 \
+#     trainer.check_val_every_n_epoch=50 trainer.limit_val_batches=10 \
 #     +modal_gpu=H200:2 +modal_cpu=48 +modal_memory_gb=200 \
 #     +modal_volume=mecka_data_zip +modal_ephemeral_disk_gb=512 \
-#     norm_stats.precomputed_norm_path=precomputed_norm_stats/mecka_all_zarr \
-#     init_submodules=false
+#     norm_stats.precomputed_norm_path=precomputed_norm_stats/mecka_all_zarr
+#   (--config-name=train_zarr_cartesian_pi sets data_schematic=pi, evaluator=eval_pi,
+#    trainer=ddp_pi, visualization=pi_cartesian_lang; init_submodules defaults true →
+#    openpi submodule + transformers 4.53.2 swap required by pi0.5.)
 #
 # Storage (~750 × ~150 MB ≈ 113 GB): pools train 150 + valid 40 + viz 10 ≈
 # 200 GB, under Modal's 512 GiB ephemeral floor. Stage-all sizing: the train
@@ -117,15 +122,15 @@ train_viz_datasets:
 
 train_dataloader_params:
   mecka_bimanual:
-    batch_size: 64
-    num_workers: 12
+    batch_size: 32
+    num_workers: 16
     persistent_workers: false
     prefetch_factor: 6
     shuffle: true
 
 valid_dataloader_params:
   mecka_bimanual:
-    batch_size: 64
+    batch_size: 32
     num_workers: 4
     persistent_workers: false
     prefetch_factor: 2
