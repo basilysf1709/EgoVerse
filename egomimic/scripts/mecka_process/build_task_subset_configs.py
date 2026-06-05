@@ -9,6 +9,11 @@ Produces the ``eps_to_use`` hash lists consumed by:
   - data/mecka_zip_h200_20h_1task.yaml   (1 task,  ~20h, random sample)
   - data/mecka_zip_h200_20h_5task.yaml   (5 tasks, ~20h, balanced 4h/task)
   - data/mecka_zip_h200_20h_10task.yaml  (10 tasks,~20h, balanced 2h/task)
+  - data/mecka_zip_h200_1task_1h.yaml    (1 task,  ~1h)
+  - data/mecka_zip_h200_1task_5h.yaml    (1 task,  ~5h)
+  - data/mecka_zip_h200_1task_10h.yaml   (1 task,  ~10h)
+  - data/mecka_zip_h200_1task_20h.yaml   (1 task,  ~20h)
+  - data/mecka_zip_h200_1task_50h.yaml   (1 task,  ~50h = all available)
 
 The three ``20h`` configs are a TASK-SCALING sweep: total data is held fixed at
 ~20h while task diversity grows (1 → 5 → 10). Task sets are nested top-N by
@@ -16,6 +21,16 @@ episode count (the 1-task set ⊂ the 5-task set ⊂ the 10-task set), so the on
 varied factor is how many tasks the 20h is spread across. All 10 tasks have far
 more than 2h available (the top-25 range from ~49h down to ~9.6h), so unlike
 the 500h case every 20h split is exactly balanceable.
+
+The five ``1task`` configs are the inverse — a DATA-SCALING (hours) sweep: a
+SINGLE task (the top task by episode count, ``potting_plants`` ≈ 49h available)
+is held fixed while the amount of data grows (1 → 5 → 10 → 20 → 50h). The
+episode subsets are strictly NESTED (1h ⊂ 5h ⊂ 10h ⊂ 20h ⊂ 50h), built by
+shuffling the task's episodes once and taking prefixes, so the only varied
+factor is how many hours of that one task the model sees. The 50h point is
+capped at all available episodes (~49h, the task does not have a full 50h).
+This sweep uses a dedicated RNG so the existing task-sweep JSONs above are left
+byte-for-byte unchanged when this script is re-run.
 
 Task -> episode mapping comes from a DemInf curation ``scores_by_task.json``
 (task_name -> {episode_hash: score}); we keep only hashes that exist in the
@@ -151,6 +166,24 @@ def main() -> None:
         if short:
             print(f"WARNING {label}: tasks under {want} eps target: {short}")
 
+    # --- data-scaling (hours) sweep: ONE task, nested 1/5/10/20/50h ------
+    # Hold the top task fixed and grow the data. Shuffle the task's episodes
+    # ONCE with a dedicated RNG, then take prefixes so the subsets nest
+    # (1h ⊂ 5h ⊂ 10h ⊂ 20h ⊂ 50h). Independent rng_h keeps the task-sweep
+    # JSONs above untouched regardless of where this block sits.
+    HOURS_SWEEP = [1, 5, 10, 20, 50]
+    rng_h = random.Random(args.seed)
+    hsweep_task, hsweep_hashes = rows[0]
+    hsweep_base = sorted(hsweep_hashes)  # deterministic order before shuffle
+    rng_h.shuffle(hsweep_base)
+    hsweep_nested = {
+        h: sorted(hsweep_base[: min(hours_to_episodes(h), len(hsweep_base))])
+        for h in HOURS_SWEEP
+    }
+    # One viz episode, drawn from the smallest (1h) set so it is present in
+    # every nested superset — each hours config shows the SAME single sample.
+    hsweep_viz = [min(hsweep_nested[HOURS_SWEEP[0]])]
+
     def flatten(by_task: dict) -> list[str]:
         return sorted({h for hs in by_task.values() for h in hs})
 
@@ -186,6 +219,9 @@ def main() -> None:
         "mecka_20h_5task_viz.json": viz_20h_5,
         "mecka_20h_10task_viz.json": viz_20h_10,
     }
+    for h in HOURS_SWEEP:
+        outputs[f"mecka_1task_{h}h.json"] = hsweep_nested[h]
+        outputs[f"mecka_1task_{h}h_viz.json"] = hsweep_viz
     for name, payload in outputs.items():
         (EXTRA_DIR / name).write_text(json.dumps(payload, indent=0))
 
@@ -219,6 +255,10 @@ def main() -> None:
         f"  20h/10task: {list(cfg_20h_10)}\n"
         f"    train={len(train_20h_10)} eps (~{hrs(len(train_20h_10)):.1f}h, ~{hrs(n_2h):.1f}h/task)  viz={len(viz_20h_10)}"
     )
+    print(f"=== data-scaling (hours) sweep: 1 task = {hsweep_task} ===")
+    for h in HOURS_SWEEP:
+        n = len(hsweep_nested[h])
+        print(f"  {h:>2}h: {n} eps (~{hrs(n):.1f}h)  viz={len(hsweep_viz)}")
     print(f"written to {EXTRA_DIR}")
 
 
