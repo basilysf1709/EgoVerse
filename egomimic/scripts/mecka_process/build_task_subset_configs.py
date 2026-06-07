@@ -197,6 +197,21 @@ def main() -> None:
     ironing_30h = sorted(ironing_base[:n_ironing_30h])
     ironing_30h_viz = [min(ironing_30h)]
 
+    # --- ironing_clothes 10h subset (nested inside the 30h set) ----------
+    # Built from the 30h hash list (NOT from the catalog directly) so we are
+    # guaranteed that every selected episode is also present in the modal zip
+    # volume that the 30h sweep already trained on. The re-shuffle uses a
+    # fresh RNG seeded the same way so the 10h pick is reproducible without
+    # touching the 30h ordering above. SQL has ~136.8h of ironing_clothes,
+    # but only ~30h is staged in the zip volume — so we sample from the
+    # confirmed-present 30h, not from SQL.
+    rng_ic10 = random.Random(args.seed)
+    ironing_10h_base = sorted(ironing_30h)
+    rng_ic10.shuffle(ironing_10h_base)
+    n_ironing_10h = min(hours_to_episodes(10), len(ironing_10h_base))
+    ironing_10h = sorted(ironing_10h_base[:n_ironing_10h])
+    ironing_10h_viz = [min(ironing_10h)]
+
     def flatten(by_task: dict) -> list[str]:
         return sorted({h for hs in by_task.values() for h in hs})
 
@@ -237,6 +252,8 @@ def main() -> None:
         outputs[f"mecka_1task_{h}h_viz.json"] = hsweep_viz
     outputs["mecka_ironing_30h.json"] = ironing_30h
     outputs["mecka_ironing_30h_viz.json"] = ironing_30h_viz
+    outputs["mecka_ironing_10h.json"] = ironing_10h
+    outputs["mecka_ironing_10h_viz.json"] = ironing_10h_viz
     for name, payload in outputs.items():
         (EXTRA_DIR / name).write_text(json.dumps(payload, indent=0))
 
@@ -277,6 +294,10 @@ def main() -> None:
     print("=== ironing_clothes 30h LR-sweep dataset ===")
     print(
         f"  {len(ironing_30h)} eps (~{hrs(len(ironing_30h)):.1f}h)  viz={len(ironing_30h_viz)}"
+    )
+    print("=== ironing_clothes 10h subset (nested in 30h) ===")
+    print(
+        f"  {len(ironing_10h)} eps (~{hrs(len(ironing_10h)):.1f}h)  viz={len(ironing_10h_viz)}"
     )
     print(f"written to {EXTRA_DIR}")
 
