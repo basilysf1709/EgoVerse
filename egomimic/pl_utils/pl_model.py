@@ -241,7 +241,7 @@ class ModelWrapper(LightningModule):
             info = {"losses": TensorUtils.detach(losses)}
             for k, v in self.model.log_info(info).items():
                 self.log(
-                    "Val/" + k,
+                    "Valid/" + k,
                     v,
                     on_step=False,
                     on_epoch=True,
