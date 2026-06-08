@@ -62,6 +62,7 @@ def _resolve_volume_paths(hydra_args: tuple[str, ...]) -> tuple[str, ...]:
         "ckpt_path",
         "norm_stats.precomputed_norm_path",
         "model.robomimic_model.config.paligemma_weight_path",
+        "model.robomimic_model.config.pytorch_weight_path",
     }
     fixed = []
     for arg in hydra_args:
