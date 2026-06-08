@@ -116,8 +116,8 @@ train_viz_datasets:
         mode: cartesian
     mode: valid
     episodes_per_epoch: 1       # == n_tasks
-    epoch_frames: 1             # max_frames_per_episode=1 → 1 sample per task
-    max_frames_per_episode: 1
+    epoch_frames: 80            # max_frames_per_episode=80 → 80 samples per task
+    max_frames_per_episode: 80
     cache_dir: /cache/zarr_cache_viz
     pool_size_gb: 10
     lookahead_epochs: 1.0
@@ -142,7 +142,7 @@ valid_dataloader_params:
 
 train_viz_dataloader_params:
   mecka_bimanual:
-    batch_size: 80            # ≥ n_tasks (1) → all task-frames in ONE batch (matches eval's max-batch=80); limit_val_batches can't truncate a task
+    batch_size: 32           # capped at 32 to avoid OOM; 80 viz samples/task span multiple batches
     num_workers: 1
     persistent_workers: false
     prefetch_factor: 2
